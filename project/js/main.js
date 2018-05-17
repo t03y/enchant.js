@@ -93,7 +93,7 @@ var RIGHT_END = 500;
 //下の画面の端
 var BOTTOM_END = 600; 
 window.onload = function(){
-    var game = new Game(RIGHT_END,BOTTOM_END);
+    var game = new Core(RIGHT_END,BOTTOM_END);
     game.blockList = [];
     game.itemList = [];
     game.ballList = [];
