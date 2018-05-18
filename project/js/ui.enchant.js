@@ -38,7 +38,7 @@
  *
  */
 
-enchant.ui = { assets: ['img/pad.png', 'img/apad.png'] };
+enchant.ui = { assets: ['img/message_frames.png', 'img/ball.png', 'img/paddle.png', 'img/block_frames.png', 'img/upper_wall.png', 'img/right_wall.png', 'img/left_wall.png'] };
 
 /**
  * 方向キーパッドのクラス: Pad
