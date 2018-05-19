@@ -1,266 +1,355 @@
-/*
 enchant();
+
 window.onload = function(){
-	var w = 460; 
-	var h = 460;
-	var game = new Game(w, h);
-    game.fps = 60;
-	game.preload('http://jsrun.it/assets/k/1/7/X/k17X3.gif','http://jsrun.it/assets/l/P/W/m/lPWmO.gif', "http://jsrun.it/assets/c/Y/M/y/cYMy7.png");
-	game.onload = function(){
-		var ball = new Sprite(11, 11);
-		ball.image = game.assets['http://jsrun.it/assets/k/1/7/X/k17X3.gif'];
-		ball.x = 20;
-		ball.y = 200;
-		ball.dx = 4;
-		ball.dy = 4;
-        ball.wait = 0;
-		ball.addEventListener('enterframe', function(){
-			this.x += this.dx;
-			this.y += this.dy;
-			if(0 > this.x || w-20 < this.x) this.dx = - this.dx;
-			if(0 > this.y || h-20 < this.y) this.dy = - this.dy;
-			if(ball.intersect(pad)){
-			    this.dy = - this.dy;
-		    }
-		});
-		
-		game.rootScene.addChild(ball);
-		
-		var pad = new Sprite(60,8);
-		pad.image = game.assets['http://jsrun.it/assets/l/P/W/m/lPWmO.gif'];
-		pad.x = 210;
-		pad.y = 420;
-		pad.nx = 210;
-		pad.addEventListener('enterframe', function(){
-			pad.moveTo(this.nx, this.y);			
-		});
-		
-		game.rootScene.addChild(pad);
-		
-		var blocks = new Group();
-		
-		for(var i=0; i< 8;i++){
-			var bw = 0;
-			for(var j=0;j<26;j++){
-				var block = new Sprite(16, 16);
-				block.image = game.assets['http://jsrun.it/assets/c/Y/M/y/cYMy7.png'];
-				block.x = 16 + bw;
-				block.y = 16 * i;
-				
-				
-				block.addEventListener('enterframe', function(){
-                		if(this.intersect(ball)){
-						ball.dy = - ball.dy;   
-						this.remove();
+	var game = new Core(480, 360);
+	game.fps = 30;
+	game.numRows = 4;    //行
+	game.numColumns = 9; //列
+	game.preload(
+			"img/left_wall.png",
+			"img/right_wall.png",
+			"img/upper_wall.png",
+			"img/block_frames.png",
+			"img/paddle.png",
+			"img/ball.png",
+			"img/message_frames.png");
+			//"audio/rattle.mp3");
+
+	var Background = enchant.Class.create(Sprite, {
+		initialize: function() {
+			var w = game.width,
+				h = game.height,
+				centerX = w*0.5;
+			Sprite.call(this, w, h);
+			var bgImage = new Surface(w, h),
+				ctx = bgImage.context;           //短い別名をつけて呼び出しを楽にする
+			var gradient = ctx.createLinearGradient(
+					centerX, 0, centerX, h);     //線形グラデーションを作る
+			gradient.addColorStop(0.0, "black"); //開始は黒
+			gradient.addColorStop(1.0, "white"); //終わりは白
+			ctx.beginPath();                     //パスをリセット
+			ctx.rect(0, 0, w, h);                //四角形を描画する
+			ctx.closePath();                     //パスを閉じる
+			ctx.fillStyle = gradient;            //グラデーションを塗りつぶし
+			ctx.fill();                          //塗りつぶす
+			this.image = bgImage;
+		}
+	});
+
+	var Wall = enchant.Class.create(Sprite, {   //左・右・上の壁
+		initialize: function(loc) {             
+			var obj = {
+				left:  { rect: [0, 0, 7, 354], direction: "right" },
+				right: { rect: [game.width-7, 0, 7, 354], direction: "left" },
+				upper: { rect: [7, 0, 471, 7], direction: "down" }
+			};
+			var r = obj[loc].rect,
+				left = r[0], top = r[1], width = r[2], height = r[3];
+			Sprite.call(this, width, height);
+			this.x = left;
+			this.y = top;
+			this.image = game.assets["img/"+loc+"_wall.png"];
+			this.reboundDirection = obj[loc].direction;
+		}
+	});
+
+	var Ball = enchant.Class.create(Sprite, {
+		//ボール、少し小さな（ボールが外接円になるような）衝突矩形を持つ
+		initialize: function() {
+			Sprite.call(this, 16, 15);
+			this.image = game.assets["img/ball.png"];
+			var rSize = parseInt(this.width*0.8);          //0.8は適当
+			this.collisionRect = new Sprite(rSize, rSize); //衝突判定用矩形
+			game.rootScene.addChild(this.collisionRect);
+			this.reset();
+
+			this.addEventListener("enterframe", function() {
+				this.mx = Math.sin(this.angle)*this.speed;
+				this.my = Math.cos(this.angle)*this.speed;
+				this.moveBy(this.mx, this.my);
+				this.collisionRect.moveBy(this.mx, this.my);
+				var that = this;
+				//ブロック以外との衝突判定
+				game.collidables.forEach(function(sprite, idx, arr) {
+					if ( that.collisionRect.intersect(sprite) ) {
+						that.rebound(sprite.reboundDirection);
 					}
 				});
-				blocks.addChild(block);
-				bw = bw + 16;
+				//画面の下へ落ちて、ゲームオーバー
+				if (this.y > game.height) {
+					//ロードエラー(deffered error)が出るためコメントアウト
+					//game.assets["audio/rattle.mp3"].clone().play();
+					showMessage("game_over");
+				}
+			});
+		},
+		rebound: function(direction) {
+			//各方向へ反発させる
+			var mv;
+			if (direction == "left" || direction == "right") {
+				this.angle *= -1;
+				mv = 2*this.mx;
+				this.x -= mv
+				this.collisionRect.x -= mv;
+				return;
 			}
+
+			if (direction == "down" || direction == "up") {
+				this.angle = Math.PI-this.angle;
+			} else {
+				//角度変化あり
+				var v = Math.random()*20*Math.PI/180;
+				if (direction == "va_down") {
+					this.angle = Math.PI-this.angle+v;
+				} else if (direction == "va_up") {
+					this.angle = Math.PI-this.angle-v;
+				}
+			}
+			mv = 2*this.my;
+			this.y -= mv;
+			this.collisionRect.y -= mv;
+		},
+		reset: function() {
+			this.x = game.width*0.5-8;
+			this.y = game.height*0.6;
+			this.angle = getRaisedAngle();
+			this.speed = 3*(60/game.fps);
+			this.mx = this.my = 0;
+			var rSize = this.collisionRect.width;
+			this.collisionRect.moveTo(this.x+(this.width-rSize)*0.5,
+			                          this.y+(this.height-rSize)*0.5);
+		},
+		speedup: function() {
+			this.speed += 1;
 		}
+	});
 
-		game.rootScene.addChild(blocks);
-		
-		
-		game.rootScene.addEventListener("touchmove", function(e) {
-			pad.nx = e.x - (pad.width/2);	
-		});		
-			
+	var Block = enchant.Class.create(Sprite, {
+		initialize: function(x, y, frame) {
+			Sprite.call(this, 50, 10);
+			this.image = game.assets["img/block_frames.png"];
+			this.x = x;
+			this.y = y;
+			this.frame = frame
+		}
+	});
+
+	var Blocks = enchant.Class.create(Group, {
+		initialize: function() {
+			Group.call(this);
+			var blockW = 50,
+				blockH = 10,
+				firstX = (game.width-blockW*game.numColumns)*0.5,
+				firstY = (game.height-blockH*game.numRows)*0.2;
+			for (var row = 0; row < game.numRows; row++) {
+				for (var col = 0; col < game.numColumns; col++) {
+					var x = firstX+blockW*col,
+						y = firstY+blockH*row;
+					this.addChild( new Block(x, y, row) );
+				}
+			}
+			this.addEventListener("enterframe", function() {
+				var bs = this.childNodes,
+					ball = game.ball;
+				for (var i in bs) {
+					var block = bs[i];
+					//もしボールと衝突したら
+					if ( ball.collisionRect.intersect(block) ) {
+						var ballCY = ball.y+ball.hegiht*0.5;
+						var blockCY = block.y+block.height*0.5;
+						var direction = (ballCY < blockCY) ? "va_up" : "va_down";
+						ball.rebound(direction);
+						this.removeChild(block);
+						//縦列の半分ずつ消したら、スピードアップ
+						if ( bs.length%parseInt(game.numColumns*0.5) === 0 ) {
+							ball.speedup();
+						}
+						game.info.increaseScore();
+					}
+				}
+				//ブロックを全て消したら
+				if (bs.length === 0) {
+					showMessage("stage_clear");
+				}
+			});
+		}
+	});
+
+	var Paddle = enchant.Class.create(Sprite, {
+		initialize: function() {
+			Sprite.call(this, 75, 10);
+			this.speed = 4*(60/game.fps);
+			this.image = game.assets["img/paddle.png"];
+			this.leftMoveBoundary = this.width*0.25;  //左移動を開始する境界
+			this.rightMoveBoundary = this.width*0.75; //右移動を開始する境界
+			this.reboundDirection = "va_up";
+			this.reset();
+			var that = this;
+			game.rootScene.addEventListener("touchmove", function(evt) {
+				if (evt.x < that.x+that.leftMoveBoundary) {
+					that.x -= that.speed;
+				} else if (evt.x > that.x+that.rightMoveBoundary) {
+					that.x += that.speed;
+				}
+			});
+		},
+		reset: function() {
+			this.x = game.width*0.5-parseInt(this.width*0.5);
+			this.y = game.height-parseInt(this.height*0.5);
+		}
+	});
+
+	var Message = enchant.Class.create(Sprite, {
+		//ゲームオーバー・ステージクリアを表示するクラス
+		initialize: function() {
+			Sprite.call(this, 127, 30);
+			this.image = game.assets["img/message_frames.png"];
+			this.x = (game.width-this.width)*0.5;
+			this.y = (game.height-this.height)*0.5;
+			this._frmIdx = { game_over: 0, stage_clear: 1 };
+			this.tl.hide();
+		},
+		change: function(state) {
+			this.frame = this._frmIdx[state];
+		}
+	});
+
+	var Information = enchant.Class.create(Group, {
+		//スコア・ステージ数を表示するラベルをまとめたクラス
+		initialize: function() {
+			Group.call(this);
+			var that = this;
+			[ ["score",     [200, 10] ],
+			  ["highScore", [10, 10] ],
+			  ["stage",     [400, 10] ] ].forEach(
+				function(a, i, arr) {
+					var key = a[0],
+						pos = a[1];
+					var label = new Label();
+					label.color = "white";
+					label.font = "16px sans-serif";
+					label.x = pos[0];
+					label.y = pos[1];
+					that[key] = label;
+					that.addChild(label);
+				}
+			);
+			this._removedBlocks = 0;
+			this.resetStage();
+			this.resetScore();
+			this.resetHighScore();
+		},
+		increaseScore: function() {
+			this._removedBlocks += 1;
+			this._score += this._removedBlocks*10;
+			this._updateScore();
+			if (this._score > this._highScore) {
+				this._highScore = this._score;
+				this._updateHighScore();
+			}
+		},
+		increaseStage: function() {
+			this._removedBlocks = 0;
+			this._stage += 1;
+			this._updateStage();
+		},
+		resetScore: function() {
+			this._score = 0;
+			this._updateScore();
+		},
+		resetHighScore: function() {
+			this._highScore = 0;
+			this._updateHighScore();
+		},
+		resetStage: function() {
+			this._removedBlocks = 0;
+			this._stage = 1;
+			this._updateStage();
+		},
+		_updateScore: function() {
+			this.score.text = "Score: "+this._score;
+		},
+		_updateHighScore: function() {
+			this.highScore.text = "High Score: "+this._highScore;
+		},
+		_updateStage: function() {
+			this.stage.text = "Stage: "+this._stage;
+		}
+	});
+
+	function getRaisedAngle() {
+		//立った（水平でない）角度を返す
+		while (true) {
+			var angle = Math.random()*2*Math.PI;
+			if (Math.abs( Math.sin(angle) ) < 0.7) return angle;
+		}
 	}
-	
+
+	function showMessage(state) {
+		//動きのある物体をシーンから削除
+		[game.paddle, game.ball, game.blocks].forEach(function(e, i, arr) {
+			game.rootScene.removeChild(e);
+		});
+		//メッセージを表示後、ゲーム再開
+		game.message.change(state);
+		game.message.tl.fadeIn(30).delay(60).then(function() {
+			this.tl.hide();
+			restart(state);
+		});
+	}
+
+	function restart(state) {
+		//ゲーム再開処理
+		[game.paddle, game.ball].forEach(function(e, i, arr) {
+			e.reset();
+			game.rootScene.addChild(e);
+		});
+		game.blocks = new Blocks();
+		game.rootScene.addChild(game.blocks);
+		switch (state) {
+		case "game_over":
+			game.info.resetScore();
+			game.info.resetStage();
+			break;
+		case "stage_clear":
+			game.info.increaseStage();
+			break;
+		default:
+			throw "must not happen";
+		}
+	}
+
+	game.onload = function(){
+		game.rootScene.addChild( new Background() );
+		game.collidables = []; //ブロック以外のボールと衝突する物体
+
+		["left", "right", "upper"].forEach(function(val, idx, arr) {
+			var wall = new Wall(val);
+			game.rootScene.addChild(wall);
+			game.collidables.push(wall);
+		});
+
+		var paddle = new Paddle();
+		game.rootScene.addChild(paddle);
+		game.paddle = paddle;
+		game.collidables.push(paddle);
+
+		var blocks = new Blocks();
+		game.rootScene.addChild(blocks);
+		game.blocks = blocks;
+
+		var ball = new Ball();
+		game.rootScene.addChild(ball);
+		game.ball = ball;
+
+		var message = new Message();
+		game.rootScene.addChild(message);
+		game.message = message;
+
+		var info = new Information();
+		game.rootScene.addChild(info);
+		game.info = info;
+	};
+
 	game.start();
-
-}
-*/
-
-
-//Webフォント
-WebFontConfig = {
-    google: { families: [ 'Passion+One::latin' ] }
-  };
-  (function() {
-    var wf = document.createElement('script');
-    wf.src = ('https:' == document.location.protocol ? 'https' : 'http') +
-      '://ajax.googleapis.com/ajax/libs/webfont/1/webfont.js';
-    wf.type = 'text/javascript';
-    wf.async = 'true';
-    var s = document.getElementsByTagName('script')[0];
-    s.parentNode.insertBefore(wf, s);
-  })();
-enchant();
-//右の画面の端
-var RIGHT_END = 500;
-//下の画面の端
-var BOTTOM_END = 600; 
-window.onload = function(){
-    var game = new Core(RIGHT_END,BOTTOM_END);
-    game.blockList = [];
-    game.itemList = [];
-    game.ballList = [];
-    game.onload = function(){
-        //シーン生成
-        var scene = game.rootScene;
-        //スコア表示のラベル
-        var score = new Label();
-        score.moveTo(30,530);
-        score.text = "Score:0";
-        score.font = "50px 'Passion One'";
-        scene.addChild(score);
-        //CLEAR表示のラベル
-        var game_clear = new Label();
-        game_clear.moveTo(30,480);
-        game_clear.text = "CLEAR";
-        game_clear.font = "50px 'Passion One'";
-        //GAME OVER表示のラベル
-        var game_over = new Label();
-        game_over.moveTo(30,480);
-        game_over.text = "GAME OVER";
-        game_over.font = "50px 'Passion One'";
-        //キーを割り当てる
-        game.keybind(32,"space");
-        game.keybind('Z'.charCodeAt(0), 'a');
-        //ブロックを生成
-        for(var i = 30;i < RIGHT_END - 30 ;i = i + 30){
-            for(var j = 30;j < BOTTOM_END / 2 ;j = j + 30){
-                var block = new Entity();
-                block.x = i;
-                block.y = j;
-                block.width = 20;
-                block.height = 20;
-                block.backgroundColor = "black";
-                scene.addChild(block );
-                game.blockList.push(block);
-            }
-        }
-        //バーを生成
-        var bar = new Entity();
-        bar.x = 220;
-        bar.y = 450;
-        bar.width = 60;
-        bar.height = 10;
-        bar.backgroundColor = "red";
-        scene.addChild(bar);
-        
-        //バーの動くスピード
-        var SPEED = 8;
-        var MOVE_RANGE_X = game.width - bar.width;
-        //バーのイベント
-        bar.addEventListener('enterframe',function(e){
-            //戦車を十字キーで左右に移動
-            if (game.input.left) this.x -= SPEED;
-	        if (game.input.right) this.x += SPEED;
-            
-            //移動可能範囲を制限
-            var right =MOVE_RANGE_X;
-            var left = 0;
-            
-            if(this.x<left){this.x = 0;}
-            else if(this.x>right) {this.x = right;}
-        });
-       
-        //弾丸を生成
-        var bullet = new Entity();
-        bullet.x = 245;
-        bullet.y = 440;
-        bullet.width = 8;
-        bullet.height = 8;
-        bullet .backgroundColor = "green";
-        bullet.className = "bullet";
-        scene.addChild(bullet);
-        //var bullet = new Entity();
-        //bullet.x = 245;
-        //bullet.y = 440;
-        //bullet.width = 8;
-        //bullet.height = 8;
-        //bullet .backgroundColor = "blue";
-        //bullet.className = "bullet";
-        //scene.addChild(bullet);
-        //x軸方向の移動量
-        bullet.ax = 0;
-        //y軸方向の移動量
-        bullet.ay = 0;
-        //スコアカウンター
-        var cnt = 0;
-        var start_cnt = 0;
-        //spaceキーを押すと実行される関数
-        var StartKey = function(e){
-            start_cnt = start_cnt + 1;
-            //一回だけ実行
-            if(start_cnt == 2){bullet.ay = 8;}
-        };
-        //spaceキーを押すと弾丸を発射
-        game.addEventListener("spacebuttondown",StartKey);
-        //アイテムを生成
-        var item = new Entity();
-        item.x = 410;
-        item.y = 280;
-        item.width = 30;
-        item.height = 10;
-        item.backgroundColor = "green";
-        item.ax = 0;
-        item.ay = 0;
-        
-        //弾丸のイベント
-        bullet.addEventListener('enterframe', function(e) {
-            //スタートする前だけ実行
-            if(start_cnt === 0){
-                //弾丸を十字キーで左右に移動
-                if (game.input.left) this.x -= SPEED;
-                if (game.input.right) this.x += SPEED;
-                
-                //移動可能範囲を制限
-                var right =game.width - bar.width/2 - this.width/2;
-                var left = bar.width/2 - this.width/2;
-                
-                if(this.x<left){this.x = left;}
-                else if(this.x>right) {this.x = right;}
-            }
-            this.x += this.ax;
-            this.y -= this.ay;
-            //壁の当たり判定
-            var rightEnd = game.width-this.width;
-            if (this.x > rightEnd) {//右の壁
-              this.x = rightEnd*2-this.x;
-              this.ax *= -1;
-            }else if(this.x < 0){//左の壁
-                this.ax *= -1;
-            }else if(this.y < 0){//上の壁
-                this.ay *= -1;
-            }
-            //ブロックの数
-            var len=game.blockList.length;
-            //弾丸のブロックに対してのあたり判定
-            for(var i = 0;i<len;i++){
-                if(this.intersect(game.blockList[i])){
-                    //移動量を逆方向にする
-                    this.ay *= -1;
-                    scene.removeChild(game.blockList[i]);
-                    game.blockList[i] = 0;
-                    cnt = cnt + 1;
-                    score.text = "Score:"+ cnt;
-                   
-                }
-            }
-            //GAME CLEARの判定:すべてのブロックが壊れたとき
-            if(cnt >= len){
-                //CLEARの文字表示
-                scene.addChild(game_clear);
-                //弾丸を非表示
-                scene.removeChild(bullet);
-            }
-            //GAME OVERの判定:弾丸が画面外に出たとき
-            if(this.y > BOTTOM_END){scene.addChild(game_over);}
-            //弾丸のバーに対してのあたり判定
-            if(this.intersect(bar)){
-                var t = this.x - (bar.x + bar.width/2);
-                //バーの右半分に衝突
-                if(t>0){this.ax = t*0.1;}
-                //バーの左半分に衝突
-                if(t<0){this.ax = t*0.1;}
-                //this.ｙ= -this.ｙ;
-                this.ay *= -1;
-            }
-        });
-    };
-    game.start();
 };
